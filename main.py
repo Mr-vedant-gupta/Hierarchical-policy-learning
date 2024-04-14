@@ -2,6 +2,7 @@ import numpy as np
 import argparse
 import torch
 from copy import deepcopy
+import os
 
 from option_critic import OptionCriticFeatures, OptionCriticConv
 from option_critic import critic_loss as critic_loss_fn
@@ -37,9 +38,39 @@ parser.add_argument('--seed', type=int, default=0, help='Random seed for numpy, 
 parser.add_argument('--logdir', type=str, default='runs', help='Directory for logging statistics')
 parser.add_argument('--exp', type=str, default="test", help='optional experiment name')
 parser.add_argument('--switch-goal', type=bool, default=False, help='switch goal after 2k eps')
+parser.add_argument('--model', type=str, default=None, help='use pretrained model')
+parser.add_argument('--test', type=int, default=0, help='only do testing, make sure to also pass model arg')
+
+
+def save_model_with_args(model, run_name, arg_string):
+    # Create the directory path
+    model_dir = os.path.join('models', run_name)
+    # Create directory if it does not exist
+    os.makedirs(model_dir, exist_ok=True)
+    # Define the path for saving the model and arguments
+    model_path = os.path.join(model_dir, 'model.pth')
+    args_path = os.path.join(model_dir, 'args')
+    # Save the model state
+    torch.save(model.state_dict(), model_path)
+    print(f"Model saved successfully at {model_path}")
+    # Write the argument string to the args file
+    with open(args_path, 'w') as file:
+        file.write(arg_string)
+    print(f"Arguments saved successfully at {args_path}")
+
+
+def load_model(model, run_name):
+    # Define the directory path from which to load the model and arguments
+    model_dir = os.path.join('models', run_name)
+    model_path = os.path.join(model_dir, 'model.pth')
+    # Load the model state
+    if os.path.isfile(model_path):
+        model.load_state_dict(torch.load(model_path))
+        print(f"Model loaded successfully from {model_path}")
+    else:
+        raise FileNotFoundError(f"No model file found at {model_path}")
 
 def run(args):
-    breakpoint()
     env, is_atari = make_env(args.env, render_mode = None)
     option_critic = OptionCriticConv if is_atari else OptionCriticFeatures
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
@@ -58,19 +89,25 @@ def run(args):
 
     # Create a prime network for more stable Q values
     option_critic_prime = deepcopy(option_critic)
-
+    if args.model:
+        print("Loading model...")
+        load_model(option_critic, args.model)
     optim = torch.optim.RMSprop(option_critic.parameters(), lr=args.learning_rate)
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     env.reset(seed=args.seed)
-
+    run_name = f"{OptionCriticFeatures.__name__}-{args.env}-{args.exp}-{args.seed}-{int(time.time())}"
     buffer = ReplayBuffer(capacity=args.max_history, seed=args.seed)
-    logger = Logger(logdir=args.logdir, run_name=f"{OptionCriticFeatures.__name__}-{args.env}-{args.exp}-{args.seed}-{int(time.time())}")
+    logger = Logger(logdir=args.logdir, run_name=run_name)
 
     steps = 0 ;
     if args.switch_goal: print(f"Current goal {env.goal}")
-    while steps < args.max_steps_total:
+    if test==1:
+        test(option_critic, args.env)
+        return
+
+    for episode in range(10_000):
 
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
@@ -146,8 +183,46 @@ def run(args):
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
 
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
+    save_model_with_args(option_critic, run_name, str(args))
+    test(option_critic, args.env)
 
-#TODO: save model params
+def test(option_critic, env_name):
+    option_critic.testing = True
+    option_critic.temperature = 0.01 #TODO
+    env, is_atari = make_env(env_name, render_mode="human")
+    for i in range(5):
+        obs, info = env.reset()
+        full_obs, local_obs = obs
+        full_state, local_state = option_critic.get_state(to_tensor(full_obs)), option_critic.get_state(
+            to_tensor(local_obs))
+        greedy_option = option_critic.greedy_option(full_state)
+        option_termination = True
+        done, truncated = False, False
+        actions = []
+        options = []
+        steps = 0
+        while ((not done) and (not truncated)) and steps < 200:
+            steps += 1
+            time.sleep(0.5)
+            if option_termination:
+                current_option =  greedy_option
+            options.append(current_option)
+            action, logp, entropy = option_critic.get_action(local_state, current_option)
+            actions.append(action)
+            next_obs, reward, done, truncated, info = env.step(action)
+            local_state = option_critic.get_state(to_tensor(next_obs[1]))
+            full_state = option_critic.get_state(to_tensor(next_obs[0]))
+            option_termination, greedy_option = option_critic.predict_option_termination(full_state, local_state,
+                                                                                         current_option)
+        print("options: ", options)
+        print("actions: ", actions)
+
+
+
+
+
+
+
 #TODO: Do some kind of testing where you check if the learned policies are optimal, and also print out the low level policies from each state
 
 if __name__=="__main__":

@@ -48,7 +48,6 @@ class MultiTaskOneHotWrapper(gym.ObservationWrapper):
         destination = observation % 4
         rem = (observation - destination)/4
         passenger_location = rem%5
-        #TODO: could this cause rounding errors?
         rem = (rem - passenger_location)/5
         taxi_pos = int(rem)
         zeros_state = np.zeros(self.n_taxi_pos + 1)
@@ -79,7 +78,6 @@ def make_env(env_name, render_mode):
         env = gym.make(env_name, frameskip=1)
         env = AtariPreprocessing(env, grayscale_obs=True, scale_obs=True, terminal_on_life_loss=True)
         env = FrameStack(env, 4)
-    breakpoint()
     if env_name == "Taxi":
         env = MultiTaskOneHotWrapper(env)
 

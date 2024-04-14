@@ -209,7 +209,6 @@ def critic_loss(model, model_prime, data_batch, args):
     nfull_states_prime = model_prime.get_state(to_tensor(nfull_obs)).squeeze(0)
     nlocal_states_prime = model_prime.get_state(to_tensor(nlocal_obs)).squeeze(0)
     next_Q_prime      = model_prime.get_Q(nfull_states_prime) # detach?
-    #TODO: make sure you didnt accidentally remove a detach!
     # Additionally, we need the beta probabilities of the next state
     nfull_states            = model.get_state(to_tensor(nfull_obs)).squeeze(0)
     nlocal_states = model.get_state(to_tensor(nlocal_obs)).squeeze(0)
