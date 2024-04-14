@@ -74,8 +74,9 @@ def run(args):
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
         obs, info   = env.reset()
-        state = option_critic.get_state(to_tensor(obs))
-        greedy_option  = option_critic.greedy_option(state)
+        full_obs, local_obs = obs
+        full_state, local_state = option_critic.get_state(to_tensor(full_obs)), option_critic.get_state(to_tensor(local_obs))
+        greedy_option  = option_critic.greedy_option(full_state)
         current_option = 0
 
         # Goal switching experiment: run for 1k episodes in fourrooms, switch goals and run for another
@@ -103,9 +104,12 @@ def run(args):
                 current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else greedy_option
                 curr_op_len = 0
     
-            action, logp, entropy = option_critic.get_action(state, current_option)
+            action, logp, entropy = option_critic.get_action(local_state, current_option)
 
             next_obs, reward, done, truncated, info = env.step(action)
+            n_full_obs, n_local_obs = next_obs
+            if reward == 20:
+                print("achieved!")
 
             buffer.push(obs, current_option, reward, next_obs, done)
             rewards += reward
@@ -128,15 +132,16 @@ def run(args):
                 if steps % args.freeze_interval == 0:
                     option_critic_prime.load_state_dict(option_critic.state_dict())
 
-            state = option_critic.get_state(to_tensor(next_obs))
-            option_termination, greedy_option = option_critic.predict_option_termination(state, current_option)
+            local_state = option_critic.get_state(to_tensor(next_obs[1]))
+            full_state = option_critic.get_state(to_tensor(next_obs[0]))
+            option_termination, greedy_option = option_critic.predict_option_termination(full_state, local_state, current_option)
 
             # update global steps etc
             steps += 1
             ep_steps += 1
             curr_op_len += 1
             obs = next_obs
-
+            # TODO - add model saving
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
 
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)

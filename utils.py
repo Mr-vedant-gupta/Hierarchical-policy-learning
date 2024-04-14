@@ -35,16 +35,29 @@ class FrameStack(FrameStack_):
         return LazyFrames(list(self.frames))
 
 
-class DiscreteToOneHotWrapper(gym.ObservationWrapper):
+class MultiTaskOneHotWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env):
         super().__init__(env)
         self.n_obs = env.observation_space.n
+        self.n_taxi_pos = 25 #TODO
+        self.n_passenger_loc = 5
+        self.n_destinations = 4
         self.observation_space = gym.spaces.Box(shape=(self.n_obs,), low=0, high=1, dtype=np.uint8)
 
     def observation(self, observation: Any) -> Any:
-        zeros = np.zeros(self.n_obs)
-        zeros[observation] = 1
-        return zeros
+        destination = observation % 4
+        rem = (observation - destination)/4
+        passenger_location = rem%5
+        #TODO: could this cause rounding errors?
+        rem = (rem - passenger_location)/5
+        taxi_pos = int(rem)
+        zeros_state = np.zeros(self.n_taxi_pos + 1)
+        zeros_state[taxi_pos] = 1
+        if passenger_location == 4:
+            zeros_state[-1] == 1
+        zeros_task = np.zeros(self.n_obs)
+        zeros_task[observation] = 1
+        return [zeros_task, zeros_state]
     
 
 def make_env(env_name):
@@ -66,9 +79,9 @@ def make_env(env_name):
         env = gym.make(env_name, frameskip=1)
         env = AtariPreprocessing(env, grayscale_obs=True, scale_obs=True, terminal_on_life_loss=True)
         env = FrameStack(env, 4)
-
+    breakpoint()
     if env_name == "Taxi":
-        env = DiscreteToOneHotWrapper(env)
+        env = MultiTaskOneHotWrapper(env)
 
     print(f"--- created {str(env)}, atari={is_atari} ---")
     return env, is_atari

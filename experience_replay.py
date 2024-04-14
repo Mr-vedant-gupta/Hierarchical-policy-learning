@@ -12,7 +12,11 @@ class ReplayBuffer(object):
 
     def sample(self, batch_size):
         obs, option, reward, next_obs, done = zip(*self.rng.sample(self.buffer, batch_size))
-        return np.stack(obs), option, reward, np.stack(next_obs), done
+        full_obs = [o[0] for o in obs]
+        local_obs = [o[1] for o in obs]
+        nfull_obs = [o[0] for o in next_obs]
+        nlocal_obs = [o[1] for o in next_obs]
+        return np.stack(full_obs), np.stack(local_obs), option, reward, np.stack(nfull_obs), np.stack(nlocal_obs), done
 
     def __len__(self):
         return len(self.buffer)

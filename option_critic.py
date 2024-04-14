@@ -25,82 +25,82 @@ class OptionCriticConv(nn.Module):
 
         self.in_channels = in_features
         self.num_actions = num_actions
-        self.num_options = num_options
-        self.magic_number = 7 * 7 * 64
-        self.device = device
-        self.testing = testing
+        # self.num_options = num_options
+        # self.magic_number = 7 * 7 * 64
+        # self.device = device
+        # self.testing = testing
+        #
+        # self.temperature = temperature
+        # self.eps_min   = eps_min
+        # self.eps_start = eps_start
+        # self.eps_decay = eps_decay
+        # self.eps_test  = eps_test
+        # self.num_steps = 0
+        #
+        # self.features = nn.Sequential(
+        #     nn.Conv2d(self.in_channels, 32, kernel_size=8, stride=4),
+        #     nn.ReLU(),
+        #     nn.Conv2d(32, 64, kernel_size=4, stride=2),
+        #     nn.ReLU(),
+        #     nn.Conv2d(64, 64, kernel_size=3, stride=1),
+        #     nn.ReLU(),
+        #     nn.modules.Flatten(),
+        #     nn.Linear(self.magic_number, 512),
+        #     nn.ReLU()
+        # )
+        #
+        # self.Q            = nn.Linear(512, num_options)                 # Policy-Over-Options
+        # self.terminations = nn.Linear(512, num_options)                 # Option-Termination
+        # self.options_W = nn.Parameter(torch.zeros(num_options, 512, num_actions))
+        # self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
+        #
+        # self.to(device)
+        # self.train(not testing)
 
-        self.temperature = temperature
-        self.eps_min   = eps_min
-        self.eps_start = eps_start
-        self.eps_decay = eps_decay
-        self.eps_test  = eps_test
-        self.num_steps = 0
-        
-        self.features = nn.Sequential(
-            nn.Conv2d(self.in_channels, 32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU(),
-            nn.modules.Flatten(),
-            nn.Linear(self.magic_number, 512),
-            nn.ReLU()
-        )
-
-        self.Q            = nn.Linear(512, num_options)                 # Policy-Over-Options
-        self.terminations = nn.Linear(512, num_options)                 # Option-Termination
-        self.options_W = nn.Parameter(torch.zeros(num_options, 512, num_actions))
-        self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
-
-        self.to(device)
-        self.train(not testing)
-
-    def get_state(self, obs):
-        if obs.ndim < 4:
-            obs = obs.unsqueeze(0)
-        obs = obs.to(self.device)
-        state = self.features(obs)
-        return state
-
-    def get_Q(self, state):
-        return self.Q(state)
-    
-    def predict_option_termination(self, state, current_option):
-        termination = self.terminations(state)[:, current_option].sigmoid()
-        option_termination = Bernoulli(termination).sample()
-        
-        Q = self.get_Q(state)
-        next_option = Q.argmax(dim=-1)
-        return bool(option_termination.item()), next_option.item()
-    
-    def get_terminations(self, state):
-        return self.terminations(state).sigmoid() 
-
-    def get_action(self, state, option):
-        logits = state.data @ self.options_W[option] + self.options_b[option]
-        action_dist = (logits / self.temperature).softmax(dim=-1)
-        action_dist = Categorical(action_dist)
-
-        action = action_dist.sample()
-        logp = action_dist.log_prob(action)
-        entropy = action_dist.entropy()
-
-        return action.item(), logp, entropy
-    
-    def greedy_option(self, state):
-        Q = self.get_Q(state)
-        return Q.argmax(dim=-1).item()
-
-    @property
-    def epsilon(self):
-        if not self.testing:
-            eps = self.eps_min + (self.eps_start - self.eps_min) * exp(-self.num_steps / self.eps_decay)
-            self.num_steps += 1
-        else:
-            eps = self.eps_test
-        return eps
+    # def get_state(self, obs):
+    #     if obs.ndim < 4:
+    #         obs = obs.unsqueeze(0)
+    #     obs = obs.to(self.device)
+    #     state = self.features(obs)
+    #     return state
+    #
+    # def get_Q(self, state):
+    #     return self.Q(state)
+    #
+    # def predict_option_termination(self, state, current_option):
+    #     termination = self.terminations(state)[:, current_option].sigmoid()
+    #     option_termination = Bernoulli(termination).sample()
+    #
+    #     Q = self.get_Q(state)
+    #     next_option = Q.argmax(dim=-1)
+    #     return bool(option_termination.item()), next_option.item()
+    #
+    # def get_terminations(self, state):
+    #     return self.terminations(state).sigmoid()
+    #
+    # def get_action(self, state, option):
+    #     logits = state.data @ self.options_W[option] + self.options_b[option]
+    #     action_dist = (logits / self.temperature).softmax(dim=-1)
+    #     action_dist = Categorical(action_dist)
+    #
+    #     action = action_dist.sample()
+    #     logp = action_dist.log_prob(action)
+    #     entropy = action_dist.entropy()
+    #
+    #     return action.item(), logp, entropy
+    #
+    # def greedy_option(self, state):
+    #     Q = self.get_Q(state)
+    #     return Q.argmax(dim=-1).item()
+    #
+    # @property
+    # def epsilon(self):
+    #     if not self.testing:
+    #         eps = self.eps_min + (self.eps_start - self.eps_min) * exp(-self.num_steps / self.eps_decay)
+    #         self.num_steps += 1
+    #     else:
+    #         eps = self.eps_test
+    #     return eps
 
 
 class OptionCriticFeatures(nn.Module):
@@ -131,17 +131,17 @@ class OptionCriticFeatures(nn.Module):
         self.eps_test  = eps_test
         self.num_steps = 0
         
-        self.features = nn.Sequential(
-            nn.Linear(in_features, 32),
-            nn.ReLU(),
-            nn.Linear(32, 64),
-            nn.ReLU()
-        )
+        # self.features = nn.Sequential(
+        #     nn.Linear(in_features, 32),
+        #     nn.ReLU(),
+        #     nn.Linear(32, 64),
+        #     nn.ReLU()
+        # )
 
-        self.Q            = nn.Linear(64, num_options)                 # Policy-Over-Options
-        self.terminations = nn.Linear(64, num_options)                 # Option-Termination
-        self.options_W = nn.Parameter(torch.zeros(num_options, 64, num_actions))
-        self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
+        self.Q            = nn.Linear(500, num_options, bias = False)                 # Policy-Over-Options
+        self.terminations = nn.Linear(26, num_options, bias = False)                 # Option-Termination
+        self.options_W = nn.Parameter(torch.zeros(num_options, 26, num_actions))
+        #self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
 
         self.to(device)
         self.train(not testing)
@@ -150,16 +150,16 @@ class OptionCriticFeatures(nn.Module):
         if obs.ndim < 4:
             obs = obs.unsqueeze(0)
         obs = obs.to(self.device)
-        state = self.features(obs)
+        state = obs #self.features(obs)
         return state
 
     def get_Q(self, state):
         return self.Q(state)
     
-    def predict_option_termination(self, state, current_option):
-        termination = self.terminations(state)[:, current_option].sigmoid()
+    def predict_option_termination(self, full_state, local_state, current_option):
+        termination = self.terminations(local_state)[:, current_option].sigmoid()
         option_termination = Bernoulli(termination).sample()
-        Q = self.get_Q(state)
+        Q = self.get_Q(full_state)
         next_option = Q.argmax(dim=-1)
         return bool(option_termination.item()), next_option.item()
     
@@ -167,7 +167,7 @@ class OptionCriticFeatures(nn.Module):
         return self.terminations(state).sigmoid() 
 
     def get_action(self, state, option):
-        logits = state.data @ self.options_W[option] + self.options_b[option]
+        logits = state.data @ self.options_W[option] #+ self.options_b[option]
         action_dist = (logits / self.temperature).softmax(dim=-1)
         action_dist = Categorical(action_dist)
 
@@ -192,23 +192,28 @@ class OptionCriticFeatures(nn.Module):
 
 
 def critic_loss(model, model_prime, data_batch, args):
-    obs, options, rewards, next_obs, dones = data_batch
+    full_obs, local_obs, options, rewards, nfull_obs, nlocal_obs, dones = data_batch
+    # full_obs, local_obs = np.array([o[0] for o in obs]), np.array([o[1] for o in obs])
+    # nfull_obs, nlocal_obs = np.array([o[0] for o in next_obs]), np.array([o[1] for o in next_obs])
     batch_idx = torch.arange(len(options)).long()
     options   = torch.LongTensor(options).to(model.device)
     rewards   = torch.FloatTensor(rewards).to(model.device)
     masks     = 1 - torch.FloatTensor(dones).to(model.device)
 
     # The loss is the TD loss of Q and the update target, so we need to calculate Q
-    states = model.get_state(to_tensor(obs)).squeeze(0)
-    Q      = model.get_Q(states)
+    full_states = model.get_state(to_tensor(full_obs)).squeeze(0)
+    local_states = model.get_state(to_tensor(local_obs)).squeeze(0)
+    Q      = model.get_Q(full_states)
     
     # the update target contains Q_next, but for stable learning we use prime network for this
-    next_states_prime = model_prime.get_state(to_tensor(next_obs)).squeeze(0)
-    next_Q_prime      = model_prime.get_Q(next_states_prime) # detach?
-
+    nfull_states_prime = model_prime.get_state(to_tensor(nfull_obs)).squeeze(0)
+    nlocal_states_prime = model_prime.get_state(to_tensor(nlocal_obs)).squeeze(0)
+    next_Q_prime      = model_prime.get_Q(nfull_states_prime) # detach?
+    #TODO: make sure you didnt accidentally remove a detach!
     # Additionally, we need the beta probabilities of the next state
-    next_states            = model.get_state(to_tensor(next_obs)).squeeze(0)
-    next_termination_probs = model.get_terminations(next_states).detach()
+    nfull_states            = model.get_state(to_tensor(nfull_obs)).squeeze(0)
+    nlocal_states = model.get_state(to_tensor(nlocal_obs)).squeeze(0)
+    next_termination_probs = model.get_terminations(nlocal_states).detach()
     next_options_term_prob = next_termination_probs[batch_idx, options]
 
     # Now we can calculate the update target gt
@@ -220,15 +225,19 @@ def critic_loss(model, model_prime, data_batch, args):
     return td_err
 
 def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args):
-    state = model.get_state(to_tensor(obs))
-    next_state = model.get_state(to_tensor(next_obs))
-    next_state_prime = model_prime.get_state(to_tensor(next_obs))
+    full_obs, local_obs = obs
+    nfull_obs, nlocal_obs = next_obs
+    full_state = model.get_state(to_tensor(full_obs))
+    local_state = model.get_state(to_tensor(local_obs))
+    nfull_state = model.get_state(to_tensor(nfull_obs))
+    nlocal_state = model.get_state(to_tensor(nlocal_obs))
+    nfull_state_prime = model_prime.get_state(to_tensor(nfull_obs))
 
-    option_term_prob = model.get_terminations(state)[:, option]
-    next_option_term_prob = model.get_terminations(next_state)[:, option].detach()
+    option_term_prob = model.get_terminations(local_state)[:, option]
+    next_option_term_prob = model.get_terminations(nlocal_state)[:, option].detach()
 
-    Q = model.get_Q(state).detach().squeeze()
-    next_Q_prime = model_prime.get_Q(next_state_prime).detach().squeeze()
+    Q = model.get_Q(full_state).detach().squeeze()
+    next_Q_prime = model_prime.get_Q(nfull_state_prime).detach().squeeze()
 
     # Target update gt
     gt = reward + (1 - done) * args.gamma * \
