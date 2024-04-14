@@ -103,11 +103,17 @@ def run(args):
 
     steps = 0 ;
     if args.switch_goal: print(f"Current goal {env.goal}")
-    if test==1:
+    if args.test==1:
         test(option_critic, args.env)
         return
-
+    batch_size = args.batch_size
     for episode in range(10_000):
+        #TODO: understand the buffer strcutre better
+        if episode == 5000:
+            print("REDUCNG BATCH SIZE")
+            batch_size = 5
+
+
 
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
@@ -153,13 +159,13 @@ def run(args):
             rewards += reward
 
             actor_loss, critic_loss = None, None
-            if len(buffer) > args.batch_size:
+            if len(buffer) > batch_size:
                 actor_loss = actor_loss_fn(obs, current_option, logp, entropy, \
                     reward, done, next_obs, option_critic, option_critic_prime, args)
                 loss = actor_loss
 
                 if steps % args.update_frequency == 0:
-                    data_batch = buffer.sample(args.batch_size)
+                    data_batch = buffer.sample(batch_size)
                     critic_loss = critic_loss_fn(option_critic, option_critic_prime, data_batch, args)
                     loss += critic_loss
 
@@ -187,6 +193,7 @@ def run(args):
     test(option_critic, args.env)
 
 def test(option_critic, env_name):
+    visualize_options(option_critic)
     option_critic.testing = True
     option_critic.temperature = 0.01 #TODO
     env, is_atari = make_env(env_name, render_mode="human")
@@ -217,11 +224,49 @@ def test(option_critic, env_name):
         print("options: ", options)
         print("actions: ", actions)
 
+def pretty_print_policy(policy):
+    # Define action labels according to the policy description
+    action_labels = {
+        0: "↓",   # Move south (down)
+        1: "↑",   # Move north (up)
+        2: "→",   # Move east (right)
+        3: "←",   # Move west (left)
+        4: "P",   # Pickup passenger
+        5: "D"    # Drop off passenger
+    }
+
+    # Iterate through each row in the policy
+    for row in policy:
+        # Map each action in the row to its corresponding label
+        labeled_row = [action_labels[action] for action in row]
+        # Join the labeled actions with spaces for better readability and print
+        print(' '.join(labeled_row))
+
+def visualize_options(option_critic):
+    for option in range(10):
+        no_passenger = [[0 for _ in range(5)] for _ in range(5)]
+        with_passenger = [[0 for _ in range(5)] for _ in range(5)]
+        for taxi_state in range(24):
+            with torch.no_grad():
+                state = torch.zeros(26)
+                state[taxi_state] = 1
+                col = taxi_state % 5
+                row = int((taxi_state - col)/5)
+                no_passenger[row][col] = option_critic.get_greedy_action(state, option)
+                state[-1] = 1
+                with_passenger[row][col] = option_critic.get_greedy_action(state, option)
+        print("OPTION:", option)
+        print("no passenger:", pretty_print_policy(no_passenger))
+        print("with passenger:", pretty_print_policy(with_passenger))
 
 
 
 
 
+
+
+
+#TODO: temperature decay
 
 #TODO: Do some kind of testing where you check if the learned policies are optimal, and also print out the low level policies from each state
 

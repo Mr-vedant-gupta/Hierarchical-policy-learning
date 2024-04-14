@@ -176,6 +176,17 @@ class OptionCriticFeatures(nn.Module):
         entropy = action_dist.entropy()
 
         return action.item(), logp, entropy
+
+    def get_greedy_action(self, state, option):
+        logits = state.data @ self.options_W[option] #+ self.options_b[option]
+        action_dist = (logits / self.temperature).softmax(dim=-1)
+        action_dist = Categorical(action_dist)
+
+        action = torch.argmax(action_dist.probs)
+        logp = action_dist.log_prob(action)
+        entropy = action_dist.entropy()
+
+        return action.item()
     
     def greedy_option(self, state):
         Q = self.get_Q(state)
@@ -226,6 +237,9 @@ def critic_loss(model, model_prime, data_batch, args):
 def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args):
     full_obs, local_obs = obs
     nfull_obs, nlocal_obs = next_obs
+    #TODO make sure the line below is now reachable
+    # if local_obs[-1] == 1:
+    #     breakpoint()
     full_state = model.get_state(to_tensor(full_obs))
     local_state = model.get_state(to_tensor(local_obs))
     nfull_state = model.get_state(to_tensor(nfull_obs))
