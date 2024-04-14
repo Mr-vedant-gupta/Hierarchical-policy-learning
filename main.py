@@ -39,7 +39,8 @@ parser.add_argument('--exp', type=str, default="test", help='optional experiment
 parser.add_argument('--switch-goal', type=bool, default=False, help='switch goal after 2k eps')
 
 def run(args):
-    env, is_atari = make_env(args.env)
+    breakpoint()
+    env, is_atari = make_env(args.env, render_mode = None)
     option_critic = OptionCriticConv if is_atari else OptionCriticFeatures
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
 
@@ -145,6 +146,9 @@ def run(args):
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
 
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
+
+#TODO: save model params
+#TODO: Do some kind of testing where you check if the learned policies are optimal, and also print out the low level policies from each state
 
 if __name__=="__main__":
     args = parser.parse_args()

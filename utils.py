@@ -60,7 +60,7 @@ class MultiTaskOneHotWrapper(gym.ObservationWrapper):
         return [zeros_task, zeros_state]
     
 
-def make_env(env_name):
+def make_env(env_name, render_mode):
 
     if env_name == 'fourrooms':
         return Fourrooms(), False
@@ -72,7 +72,7 @@ def make_env(env_name):
         "ALE/Zaxxon-v5",
     ]
 
-    env = gym.make(env_name)
+    env = gym.make(env_name, render_mode=render_mode)
     is_atari = "atari" in env.spec.entry_point
     if is_atari:
         assert env_name in enabled_atari_envs, env_name
