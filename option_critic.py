@@ -141,7 +141,7 @@ class OptionCriticFeatures(nn.Module):
         self.Q            = nn.Linear(500, num_options, bias = False)                 # Policy-Over-Options
         self.terminations = nn.Linear(26, num_options, bias = False)                 # Option-Termination
         self.options_W = nn.Parameter(torch.zeros(num_options, 26, num_actions))
-        self.Q_opt = nn.Linear(500, 1, bias = False)
+        self.Q_opt = nn.Linear(500, num_actions, bias = False)
         #self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
 
         self.to(device)
@@ -235,7 +235,7 @@ def critic_loss(model, model_prime, data_batch, args):
     # to update Q we want to use the actual network, not the prime
     td_err = (Q[batch_idx, options] - gt.detach()).pow(2).mul(0.5).mean()
     #breakpoint()
-    q_error = (model.Q_opt(full_states)[batch_idx, 0] - (rewards + masks*args.gamma*model_prime.Q_opt(nfull_states_prime).flatten()).detach()).pow(2).mul(0.5).mean()
+    q_error = (model.Q_opt(full_states)[batch_idx, 0] - (rewards + masks*args.gamma*model_prime.Q_opt(nfull_states_prime).max(dim=-1)[0]).detach()).pow(2).mul(0.5).mean()
     return td_err + q_error
 
 def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args):
@@ -263,7 +263,7 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
     # The termination loss
     termination_loss = option_term_prob * (Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
     # Switch termination loss stattement here to try using separate value funciton
-    # termination_loss = option_term_prob * (Q[option].detach() - model.Q_opt(full_state).detach().squeeze().flatten().detach()) * (
+    # termination_loss = option_term_prob * (Q[option].detach() - model.Q_opt(full_state).detach().squeeze().max(dim=-1)[0].detach()) * (
     #             1 - done)
     
     # actor-critic policy gradient with entropy regularization
