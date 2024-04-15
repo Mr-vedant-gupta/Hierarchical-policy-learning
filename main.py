@@ -86,8 +86,6 @@ def run(args):
         eps_test=args.optimal_eps,
         device=device
     )
-What if we say termination can never go below 0.5 - maybe you can prove that doing so would not change the optimal policy?
-note that the code is currently using the two option heurstic
     # Create a prime network for more stable Q values
     option_critic_prime = deepcopy(option_critic)
     if args.model:
@@ -109,8 +107,8 @@ note that the code is currently using the two option heurstic
         return
     batch_size = args.batch_size
     lam = 0
-
     for episode in range(10_000):
+        options = []
         prev_step_termination = False
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
@@ -147,6 +145,7 @@ note that the code is currently using the two option heurstic
                 option_lengths[current_option].append(curr_op_len)
                 current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else greedy_option
                 curr_op_len = 0
+            options.append(current_option)
     
             action, logp, entropy = option_critic.get_action(local_state, current_option)
 
@@ -155,7 +154,7 @@ note that the code is currently using the two option heurstic
             if reward == 20:
                 print("achieved!")
                 success = True
-            buffer.push(obs, current_option, reward, next_obs, done)
+            buffer.push(obs, current_option, reward, next_obs, done, action)
             rewards += reward
 
             actor_loss, critic_loss = None, None
@@ -177,10 +176,7 @@ note that the code is currently using the two option heurstic
 
             local_state = option_critic.get_state(to_tensor(next_obs[1]))
             full_state = option_critic.get_state(to_tensor(next_obs[0]))
-            prev_step_termination = option_termination
             option_termination, greedy_option, termination_prob = option_critic.predict_option_termination(full_state, local_state, current_option)
-            if prev_step_termination:
-                option_termination = False
             switch_loss += termination_prob
             # update global steps etc
             steps += 1
@@ -189,18 +185,19 @@ note that the code is currently using the two option heurstic
             obs = next_obs
             # TODO - add model saving
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
-        if success:
-            lam += 7e-5
-        else:
-            lam -= 2e-5
-        # if lam > 0.05:
-        #     lam = 0.05
-        if lam < 0:
-            lam = 0
-        loss = lam * switch_loss
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
+        if episode > 3000:
+            print(options)
+        # Uncomment this to try increasing option size with dual gradient descent
+        # if success:
+        #     lam += 7e-5
+        # else:
+        #     lam -= 2e-5
+        # if lam < 0:
+        #     lam = 0
+        # loss = lam * switch_loss
+        # optim.zero_grad()
+        # loss.backward()
+        # optim.step()
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
         print(lam)
 
@@ -208,6 +205,8 @@ note that the code is currently using the two option heurstic
     test(option_critic, args.env)
 
 def test(option_critic, env_name):
+    # Note: there seems to be some bug in the test script as it does not match the training scripts performance
+    # Perhaps the issue is that I'm taking argmax here instead of using temperature and epsilon
     visualize_options(option_critic)
     option_critic.testing = True
     option_critic.temperature = 0.01 #TODO
