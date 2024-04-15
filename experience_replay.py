@@ -7,16 +7,16 @@ class ReplayBuffer(object):
         self.rng = random.SystemRandom(seed)
         self.buffer = deque(maxlen=capacity)
 
-    def push(self, obs, option, reward, next_obs, done):
-        self.buffer.append((obs, option, reward, next_obs, done))
+    def push(self, obs, option, reward, next_obs, done, switch):
+        self.buffer.append((obs, option, reward, next_obs, done, switch))
 
     def sample(self, batch_size):
-        obs, option, reward, next_obs, done = zip(*self.rng.sample(self.buffer, batch_size))
+        obs, option, reward, next_obs, done, switch = zip(*self.rng.sample(self.buffer, batch_size))
         full_obs = [o[0] for o in obs]
         local_obs = [o[1] for o in obs]
         nfull_obs = [o[0] for o in next_obs]
         nlocal_obs = [o[1] for o in next_obs]
-        return np.stack(full_obs), np.stack(local_obs), option, reward, np.stack(nfull_obs), np.stack(nlocal_obs), done
+        return np.stack(full_obs), np.stack(local_obs), option, reward, np.stack(nfull_obs), np.stack(nlocal_obs), done, switch
 
     def __len__(self):
         return len(self.buffer)

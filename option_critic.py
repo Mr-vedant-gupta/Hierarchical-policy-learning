@@ -138,9 +138,8 @@ class OptionCriticFeatures(nn.Module):
         #     nn.ReLU()
         # )
 
-        self.Q            = nn.Linear(500, num_options, bias = False)                 # Policy-Over-Options
-        self.terminations = nn.Linear(26, num_options, bias = False)                 # Option-Termination
-        self.options_W = nn.Parameter(torch.zeros(num_options, 26, num_actions))
+        self.Q            = nn.Linear(500, num_options, bias = False)                 # Policy-Over-Options             # Option-Termination
+        self.options_W = nn.Parameter(torch.zeros(num_options, 26, num_actions + 1))
         #self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
 
         self.to(device)
@@ -203,13 +202,14 @@ class OptionCriticFeatures(nn.Module):
 
 
 def critic_loss(model, model_prime, data_batch, args):
-    full_obs, local_obs, options, rewards, nfull_obs, nlocal_obs, dones = data_batch
+    full_obs, local_obs, options, rewards, nfull_obs, nlocal_obs, dones, switch = data_batch
     # full_obs, local_obs = np.array([o[0] for o in obs]), np.array([o[1] for o in obs])
     # nfull_obs, nlocal_obs = np.array([o[0] for o in next_obs]), np.array([o[1] for o in next_obs])
     batch_idx = torch.arange(len(options)).long()
     options   = torch.LongTensor(options).to(model.device)
     rewards   = torch.FloatTensor(rewards).to(model.device)
     masks     = 1 - torch.FloatTensor(dones).to(model.device)
+    switch = torch.FloatTensor(switch).to(model.device)
 
     # The loss is the TD loss of Q and the update target, so we need to calculate Q
     full_states = model.get_state(to_tensor(full_obs)).squeeze(0)
@@ -223,18 +223,19 @@ def critic_loss(model, model_prime, data_batch, args):
     # Additionally, we need the beta probabilities of the next state
     nfull_states            = model.get_state(to_tensor(nfull_obs)).squeeze(0)
     nlocal_states = model.get_state(to_tensor(nlocal_obs)).squeeze(0)
-    next_termination_probs = model.get_terminations(nlocal_states).detach()
-    next_options_term_prob = next_termination_probs[batch_idx, options]
+    # next_termination_probs = model.get_terminations(nlocal_states).detach()
+    # next_options_term_prob = next_termination_probs[batch_idx, options]
 
     # Now we can calculate the update target gt
-    gt = rewards + masks * args.gamma * \
-        ((1 - next_options_term_prob) * next_Q_prime[batch_idx, options] + next_options_term_prob  * next_Q_prime.max(dim=-1)[0])
-
+    # gt = rewards + masks * args.gamma * \
+    #     ((1 - next_options_term_prob) * next_Q_prime[batch_idx, options] + next_options_term_prob  * next_Q_prime.max(dim=-1)[0])
+    #TODO: should you make this switch probability based like OC?
+    targ = rewards + masks * args.gamma * (switch * next_Q_prime.max(dim=-1)[0] + (1-switch)*next_Q_prime[batch_idx, options])
     # to update Q we want to use the actual network, not the prime
-    td_err = (Q[batch_idx, options] - gt.detach()).pow(2).mul(0.5).mean()
+    td_err = (Q[batch_idx, options] - targ.detach()).pow(2).mul(0.5).mean()
     return td_err
 
-def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args):
+def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args, switch):
     full_obs, local_obs = obs
     nfull_obs, nlocal_obs = next_obs
     #TODO make sure the line below is now reachable
@@ -246,20 +247,24 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
     nlocal_state = model.get_state(to_tensor(nlocal_obs))
     nfull_state_prime = model_prime.get_state(to_tensor(nfull_obs))
 
-    option_term_prob = model.get_terminations(local_state)[:, option]
-    next_option_term_prob = model.get_terminations(nlocal_state)[:, option].detach()
+    # option_term_prob = model.get_terminations(local_state)[:, option]
+    # next_option_term_prob = model.get_terminations(nlocal_state)[:, option].detach()
 
     Q = model.get_Q(full_state).detach().squeeze()
     next_Q_prime = model_prime.get_Q(nfull_state_prime).detach().squeeze()
 
     # Target update gt
-    gt = reward + (1 - done) * args.gamma * \
-        ((1 - next_option_term_prob) * next_Q_prime[option] + next_option_term_prob  * next_Q_prime.max(dim=-1)[0])
+    # gt = reward + (1 - done) * args.gamma * \
+    #     ((1 - next_option_term_prob) * next_Q_prime[option] + next_option_term_prob  * next_Q_prime.max(dim=-1)[0])
 
     # The termination loss
-    termination_loss = option_term_prob * (Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
-    
+    #termination_loss = option_term_prob * (Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
+    #TODO: why is this logp?
     # actor-critic policy gradient with entropy regularization
-    policy_loss = -logp * (gt.detach() - Q[option]) - args.entropy_reg * entropy
-    actor_loss = termination_loss + policy_loss
-    return actor_loss
+    if switch:
+        policy_loss = -logp * (reward + (1-done)*args.gamma*next_Q_prime.max(dim=-1)[0] - Q[option]).detach()  - args.entropy_reg * entropy
+    else:
+        policy_loss = -logp * (reward + (1 - done) * args.gamma * next_Q_prime[option] - Q[
+            option]).detach() - args.entropy_reg * entropy
+    #actor_loss = termination_loss + policy_loss
+    return policy_loss

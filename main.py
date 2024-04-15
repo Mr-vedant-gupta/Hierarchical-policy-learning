@@ -71,7 +71,7 @@ def load_model(model, run_name):
         raise FileNotFoundError(f"No model file found at {model_path}")
 
 def run(args):
-    env, is_atari = make_env(args.env, render_mode = None)
+    env, is_atari = make_env(args.env, render_mode = "None")
     option_critic = OptionCriticConv if is_atari else OptionCriticFeatures
     device = torch.device('cuda' if torch.cuda.is_available() and args.cuda else 'cpu')
 
@@ -86,8 +86,6 @@ def run(args):
         eps_test=args.optimal_eps,
         device=device
     )
-What if we say termination can never go below 0.5 - maybe you can prove that doing so would not change the optimal policy?
-note that the code is currently using the two option heurstic
     # Create a prime network for more stable Q values
     option_critic_prime = deepcopy(option_critic)
     if args.model:
@@ -111,13 +109,21 @@ note that the code is currently using the two option heurstic
     lam = 0
 
     for episode in range(10_000):
-        prev_step_termination = False
+        options = []
+        print("temp changes")
+        option_critic.temperature = 1e-5
+        if episode == 500:
+            env, is_atari = make_env(args.env, render_mode="human")
+        option_critic.temperature *=0.999
+        print("temperature", option_critic.temperature)
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
         obs, info   = env.reset()
         full_obs, local_obs = obs
         full_state, local_state = option_critic.get_state(to_tensor(full_obs)), option_critic.get_state(to_tensor(local_obs))
         greedy_option  = option_critic.greedy_option(full_state)
+        first thing to do is a full code check
+    TODO: this should be changed
         current_option = 0
 
         # Goal switching experiment: run for 1k episodes in fourrooms, switch goals and run for another
@@ -137,31 +143,40 @@ note that the code is currently using the two option heurstic
             break
 
         done = False ; truncated = False ; ep_steps = 0 ; option_termination = True ; curr_op_len = 0
-
-        switch_loss = 0
+        #TODO: isnt it wrong to learn Q(s, w) from a buffer as w changes so this would underestimate Q
+        action = 0
         success = False
+        #TODO: for envs that have negative reward till termination, our augmentation does not affect the optimal policy?
         while ((not done) and (not truncated)) and ep_steps < args.max_steps_ep:
+            options.append(current_option)
             epsilon = option_critic.epsilon
 
-            if option_termination:
+            if action == 6:
                 option_lengths[current_option].append(curr_op_len)
-                current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else greedy_option
+                current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else option_critic.greedy_option(full_state)
                 curr_op_len = 0
     
             action, logp, entropy = option_critic.get_action(local_state, current_option)
-
-            next_obs, reward, done, truncated, info = env.step(action)
+            switch = (action == 6)
+            #TODO: can even decay the loss from switching
+            #TODO: check all code
+            #TODO: is there a dual gradient descent like method where you can tune this automatically?
+            #TODO: Will help if you prevent conseq switches or add some logic there
+            if action == 6:
+                next_obs, reward, done, truncated = obs, -3, False, False
+            else:
+                next_obs, reward, done, truncated, info = env.step(action)
             n_full_obs, n_local_obs = next_obs
             if reward == 20:
                 print("achieved!")
                 success = True
-            buffer.push(obs, current_option, reward, next_obs, done)
+            buffer.push(obs, current_option, reward, next_obs, done, switch)
             rewards += reward
 
             actor_loss, critic_loss = None, None
             if len(buffer) > batch_size: # after first few iters this is satisfied every time!
                 actor_loss = actor_loss_fn(obs, current_option, logp, entropy, \
-                    reward, done, next_obs, option_critic, option_critic_prime, args)
+                    reward, done, next_obs, option_critic, option_critic_prime, args, switch)
                 loss = actor_loss
 
                 if steps % args.update_frequency == 0:
@@ -177,11 +192,7 @@ note that the code is currently using the two option heurstic
 
             local_state = option_critic.get_state(to_tensor(next_obs[1]))
             full_state = option_critic.get_state(to_tensor(next_obs[0]))
-            prev_step_termination = option_termination
-            option_termination, greedy_option, termination_prob = option_critic.predict_option_termination(full_state, local_state, current_option)
-            if prev_step_termination:
-                option_termination = False
-            switch_loss += termination_prob
+            #option_termination, greedy_option, termination_prob = option_critic.predict_option_termination(full_state, local_state, current_option)
             # update global steps etc
             steps += 1
             ep_steps += 1
@@ -189,24 +200,13 @@ note that the code is currently using the two option heurstic
             obs = next_obs
             # TODO - add model saving
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
-        if success:
-            lam += 7e-5
-        else:
-            lam -= 2e-5
-        # if lam > 0.05:
-        #     lam = 0.05
-        if lam < 0:
-            lam = 0
-        loss = lam * switch_loss
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
-        print(lam)
+        print(options)
 
     save_model_with_args(option_critic, run_name, str(args))
     test(option_critic, args.env)
 
+#TODO: make this identical to the training code - there could be differentc
 def test(option_critic, env_name):
     visualize_options(option_critic)
     option_critic.testing = True
@@ -218,7 +218,7 @@ def test(option_critic, env_name):
         full_obs, local_obs = obs
         full_state, local_state = option_critic.get_state(to_tensor(full_obs)), option_critic.get_state(
             to_tensor(local_obs))
-        greedy_option = option_critic.greedy_option(full_state)
+        current_option = 0
         option_termination = True
         done, truncated = False, False
         actions = []
@@ -227,16 +227,18 @@ def test(option_critic, env_name):
         while ((not done) and (not truncated)) and steps < 30:
             steps += 1
             time.sleep(0.5)
-            if option_termination:
-                current_option =  greedy_option
             options.append(current_option)
-            action, logp, entropy = option_critic.get_action(local_state, current_option)
+            action = option_critic.get_greedy_action(local_state, current_option)
             actions.append(action)
-            next_obs, reward, done, truncated, info = env.step(action)
+            if action != 6:
+                next_obs, reward, done, truncated, info = env.step(action)
+            else:
+                next_obs, reward, done, truncated = obs, -1, False, False
+                current_option = option_critic.greedy_option(full_state)
             local_state = option_critic.get_state(to_tensor(next_obs[1]))
             full_state = option_critic.get_state(to_tensor(next_obs[0]))
-            option_termination, greedy_option, prob = option_critic.predict_option_termination(full_state, local_state,
-                                                                                         current_option)
+            # option_termination, greedy_option, prob = option_critic.predict_option_termination(full_state, local_state,
+            #                                                                              current_option)
         print("options: ", options)
         print("actions: ", actions)
 
@@ -248,7 +250,8 @@ def pretty_print_policy(policy):
         2: "→",   # Move east (right)
         3: "←",   # Move west (left)
         4: "P",   # Pickup passenger
-        5: "D"    # Drop off passenger
+        5: "D",   # Drop off passenger
+        6:"S"
     }
 
     # Iterate through each row in the policy
