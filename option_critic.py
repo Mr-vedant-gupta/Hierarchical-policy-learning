@@ -161,7 +161,7 @@ class OptionCriticFeatures(nn.Module):
         option_termination = Bernoulli(termination).sample()
         Q = self.get_Q(full_state)
         next_option = Q.argmax(dim=-1)
-        return bool(option_termination.item()), next_option.item()
+        return bool(option_termination.item()), next_option.item(), termination
     
     def get_terminations(self, state):
         return self.terminations(state).sigmoid() 

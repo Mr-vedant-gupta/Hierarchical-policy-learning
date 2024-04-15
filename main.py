@@ -86,7 +86,8 @@ def run(args):
         eps_test=args.optimal_eps,
         device=device
     )
-
+What if we say termination can never go below 0.5 - maybe you can prove that doing so would not change the optimal policy?
+note that the code is currently using the two option heurstic
     # Create a prime network for more stable Q values
     option_critic_prime = deepcopy(option_critic)
     if args.model:
@@ -107,14 +108,10 @@ def run(args):
         test(option_critic, args.env)
         return
     batch_size = args.batch_size
+    lam = 0
+
     for episode in range(10_000):
-        #TODO: understand the buffer strcutre better
-        if episode == 5000:
-            print("REDUCNG BATCH SIZE")
-            batch_size = 5
-
-
-
+        prev_step_termination = False
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
         obs, info   = env.reset()
@@ -140,6 +137,9 @@ def run(args):
             break
 
         done = False ; truncated = False ; ep_steps = 0 ; option_termination = True ; curr_op_len = 0
+
+        switch_loss = 0
+        success = False
         while ((not done) and (not truncated)) and ep_steps < args.max_steps_ep:
             epsilon = option_critic.epsilon
 
@@ -154,12 +154,12 @@ def run(args):
             n_full_obs, n_local_obs = next_obs
             if reward == 20:
                 print("achieved!")
-
+                success = True
             buffer.push(obs, current_option, reward, next_obs, done)
             rewards += reward
 
             actor_loss, critic_loss = None, None
-            if len(buffer) > batch_size:
+            if len(buffer) > batch_size: # after first few iters this is satisfied every time!
                 actor_loss = actor_loss_fn(obs, current_option, logp, entropy, \
                     reward, done, next_obs, option_critic, option_critic_prime, args)
                 loss = actor_loss
@@ -168,7 +168,6 @@ def run(args):
                     data_batch = buffer.sample(batch_size)
                     critic_loss = critic_loss_fn(option_critic, option_critic_prime, data_batch, args)
                     loss += critic_loss
-
                 optim.zero_grad()
                 loss.backward()
                 optim.step()
@@ -178,8 +177,11 @@ def run(args):
 
             local_state = option_critic.get_state(to_tensor(next_obs[1]))
             full_state = option_critic.get_state(to_tensor(next_obs[0]))
-            option_termination, greedy_option = option_critic.predict_option_termination(full_state, local_state, current_option)
-
+            prev_step_termination = option_termination
+            option_termination, greedy_option, termination_prob = option_critic.predict_option_termination(full_state, local_state, current_option)
+            if prev_step_termination:
+                option_termination = False
+            switch_loss += termination_prob
             # update global steps etc
             steps += 1
             ep_steps += 1
@@ -187,8 +189,21 @@ def run(args):
             obs = next_obs
             # TODO - add model saving
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
-
+        if success:
+            lam += 7e-5
+        else:
+            lam -= 2e-5
+        # if lam > 0.05:
+        #     lam = 0.05
+        if lam < 0:
+            lam = 0
+        loss = lam * switch_loss
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
+        print(lam)
+
     save_model_with_args(option_critic, run_name, str(args))
     test(option_critic, args.env)
 
@@ -197,6 +212,7 @@ def test(option_critic, env_name):
     option_critic.testing = True
     option_critic.temperature = 0.01 #TODO
     env, is_atari = make_env(env_name, render_mode="human")
+    input("press enter to see visualizations")
     for i in range(5):
         obs, info = env.reset()
         full_obs, local_obs = obs
@@ -208,7 +224,7 @@ def test(option_critic, env_name):
         actions = []
         options = []
         steps = 0
-        while ((not done) and (not truncated)) and steps < 200:
+        while ((not done) and (not truncated)) and steps < 30:
             steps += 1
             time.sleep(0.5)
             if option_termination:
@@ -219,7 +235,7 @@ def test(option_critic, env_name):
             next_obs, reward, done, truncated, info = env.step(action)
             local_state = option_critic.get_state(to_tensor(next_obs[1]))
             full_state = option_critic.get_state(to_tensor(next_obs[0]))
-            option_termination, greedy_option = option_critic.predict_option_termination(full_state, local_state,
+            option_termination, greedy_option, prob = option_critic.predict_option_termination(full_state, local_state,
                                                                                          current_option)
         print("options: ", options)
         print("actions: ", actions)
@@ -258,7 +274,7 @@ def visualize_options(option_critic):
         print("OPTION:", option)
         print("no passenger:", pretty_print_policy(no_passenger))
         print("with passenger:", pretty_print_policy(with_passenger))
-
+#TODO: more intelligent heuristic
 
 
 
