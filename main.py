@@ -4,7 +4,7 @@ import torch
 from copy import deepcopy
 import os
 
-from option_critic import OptionCriticFeatures, OptionCriticConv
+from option_critic import OptionCriticFeatures, OptionCriticConv, deoc_entropy
 from option_critic import critic_loss as critic_loss_fn
 from option_critic import actor_loss as actor_loss_fn
 
@@ -23,7 +23,7 @@ parser.add_argument('--gamma', type=float, default=.99, help='Discount rate')
 parser.add_argument('--epsilon-start',  type=float, default=1.0, help=('Starting value for epsilon.'))
 parser.add_argument('--epsilon-min', type=float, default=.1, help='Minimum epsilon.')
 parser.add_argument('--epsilon-decay', type=float, default=20000, help=('Number of steps to minimum epsilon.'))
-parser.add_argument('--max-history', type=int, default=10000, help=('Maximum number of steps stored in replay'))
+parser.add_argument('--max-history', type=int, default=200, help=('Maximum number of steps stored in replay'))
 parser.add_argument('--batch-size', type=int, default=32, help='Batch size.')
 parser.add_argument('--freeze-interval', type=int, default=200, help=('Interval between target freezes.'))
 parser.add_argument('--update-frequency', type=int, default=4, help=('Number of actions before each SGD update.'))
@@ -40,7 +40,11 @@ parser.add_argument('--exp', type=str, default="test", help='optional experiment
 parser.add_argument('--switch-goal', type=bool, default=False, help='switch goal after 2k eps')
 parser.add_argument('--model', type=str, default=None, help='use pretrained model')
 parser.add_argument('--test', type=int, default=0, help='only do testing, make sure to also pass model arg')
-
+parser.add_argument('--diversity_learning', action='store_true', help='Whether to use diversity enriched learning')
+parser.add_argument('--diversity_termination', action='store_true', help='Whether to use diversity enriched termination')
+parser.add_argument('--diversity_tradeoff', type=float, default=0.0001, help='Tradeoff between diversity and reward')
+parser.add_argument('--deoc_entropy_samples', type=int, default=6, help='Number of samples to estimate entropy')
+parser.add_argument('--separate_value_function', action='store_true', help='Whether to use separate termination network')
 
 def save_model_with_args(model, run_name, arg_string):
     # Create the directory path
@@ -107,6 +111,9 @@ def run(args):
         return
     batch_size = args.batch_size
     lam = 0
+
+    sum_entropy = 0
+
     for episode in range(10_000):
         options = []
         prev_step_termination = False
@@ -150,17 +157,21 @@ def run(args):
             action, logp, entropy = option_critic.get_action(local_state, current_option)
 
             next_obs, reward, done, truncated, info = env.step(action)
+
+            if args.diversity_learning:
+                entropy_loss = deoc_entropy(option_critic, local_state, option_critic.options_W, args)
+                sum_entropy += entropy_loss
+                pseudo_reward = (1 - args.diversity_tradeoff) * reward + args.diversity_tradeoff * entropy_loss
+                reward = pseudo_reward
+
             n_full_obs, n_local_obs = next_obs
-            if reward == 20:
-                print("achieved!")
-                success = True
             buffer.push(obs, current_option, reward, next_obs, done, action)
             rewards += reward
 
             actor_loss, critic_loss = None, None
             if len(buffer) > batch_size: # after first few iters this is satisfied every time!
                 actor_loss = actor_loss_fn(obs, current_option, logp, entropy, \
-                    reward, done, next_obs, option_critic, option_critic_prime, args)
+                    reward, done, next_obs, option_critic, option_critic_prime, args, sum_entropy / steps)
                 loss = actor_loss
 
                 if steps % args.update_frequency == 0:
