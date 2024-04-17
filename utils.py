@@ -44,6 +44,8 @@ class MultiTaskOneHotWrapper(gym.ObservationWrapper):
         self.n_destinations = 4
         self.observation_space = gym.spaces.Box(shape=(self.n_obs,), low=0, high=1, dtype=np.uint8)
 
+    # low-level policy gets a vector of length 26 -- 25 possible agent position -- one hot,
+    # last is whether passenger is in taxi or not
     def observation(self, observation: Any) -> Any:
         destination = observation % 4
         rem = (observation - destination)/4
