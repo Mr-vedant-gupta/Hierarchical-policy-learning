@@ -292,7 +292,7 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
         termination_loss = deoc_ent
     elif args.separate_value_function:
         option_term_prob = model.get_terminations(local_state)[:, option]
-        termination_loss = option_term_prob * (Q[option].detach() - model.Q_opt(full_state).detach().squeeze().flatten().detach()) * (1 - done)
+        termination_loss = option_term_prob * (Q[option].detach() - model.Q_opt(full_state).detach().squeeze().max(dim=-1)[0].detach()) * (1 - done)
     else:
         option_term_prob = model.get_terminations(local_state)[:, option]
         termination_loss = option_term_prob * (Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
