@@ -112,12 +112,14 @@ def run(args):
                 current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else greedy_option
                 curr_op_len = 0
     
+            import pdb; pdb.set_trace()
+
             action, logp, entropy = option_critic.get_action(state, current_option)
 
             next_obs, reward, done, _ = env.step(action)
 
             if args.diversity_learning:
-                entropy_loss = deoc_entropy(option_critic, obs, option_critic.options_W, args)
+                entropy_loss = deoc_entropy(option_critic, state, option_critic.options_W, args)
                 sum_entropy += entropy_loss
                 pseudo_reward = (1 - args.diversity_tradeoff) * reward + args.diversity_tradeoff * entropy_loss
                 reward = pseudo_reward
