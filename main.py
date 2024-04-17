@@ -46,8 +46,10 @@ parser.add_argument('--diversity_tradeoff', type=float, default=0.0001, help='Tr
 parser.add_argument('--deoc_entropy_samples', type=int, default=6, help='Number of samples to estimate entropy')
 parser.add_argument('--separate_value_function', action='store_true', help='Whether to use separate termination network')
 
-def save_model_with_args(model, run_name, arg_string):
+def save_model_with_args(model, run_name, arg_string, ep_num):
     # Create the directory path
+    run_name += f"-{ep_num}"
+
     model_dir = os.path.join('models', run_name)
     # Create directory if it does not exist
     os.makedirs(model_dir, exist_ok=True)
@@ -196,8 +198,9 @@ def run(args):
             obs = next_obs
             # TODO - add model saving
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
-        if episode > 3000:
-            print(options)
+
+        if episode % 500 == 0:
+            save_model_with_args(option_critic, run_name, str(args), episode)
         # Uncomment this to try increasing option size with dual gradient descent
         # if success:
         #     lam += 7e-5
