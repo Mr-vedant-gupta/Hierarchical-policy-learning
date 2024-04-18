@@ -45,6 +45,7 @@ parser.add_argument('--diversity_termination', action='store_true', help='Whethe
 parser.add_argument('--diversity_tradeoff', type=float, default=0.0001, help='Tradeoff between diversity and reward')
 parser.add_argument('--deoc_entropy_samples', type=int, default=6, help='Number of samples to estimate entropy')
 parser.add_argument('--separate_value_function', action='store_true', help='Whether to use separate termination network')
+parser.add_argument('--dual_gradient_descent', action='store_true', help='Whether to use dual gradient descent')
 
 def save_model_with_args(model, run_name, arg_string, ep_num):
     # Create the directory path
@@ -202,16 +203,19 @@ def run(args):
         if episode % 500 == 0:
             save_model_with_args(option_critic, run_name, str(args), episode)
         # Uncomment this to try increasing option size with dual gradient descent
-        # if success:
-        #     lam += 7e-5
-        # else:
-        #     lam -= 2e-5
-        # if lam < 0:
-        #     lam = 0
-        # loss = lam * switch_loss
-        # optim.zero_grad()
-        # loss.backward()
-        # optim.step()
+
+        if args.dual_gradient_descent:
+            if success:
+                lam += 7e-5
+            else:
+                lam -= 2e-5
+            if lam < 0:
+                lam = 0
+            loss = lam * switch_loss
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
         print(lam)
 
