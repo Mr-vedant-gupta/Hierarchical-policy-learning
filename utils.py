@@ -52,10 +52,11 @@ class MultiTaskOneHotWrapper(gym.ObservationWrapper):
         passenger_location = rem%5
         rem = (rem - passenger_location)/5
         taxi_pos = int(rem)
-        zeros_state = np.zeros(self.n_taxi_pos + 1)
-        zeros_state[taxi_pos] = 1
-        if passenger_location == 4:
-            zeros_state[-1] = 1
+        zeros_state = np.zeros(50)
+        if passenger_location != 4:
+            zeros_state[taxi_pos] = 1
+        else:
+            zeros_state[taxi_pos + 25] = 1
         zeros_task = np.zeros(self.n_obs)
         zeros_task[observation] = 1
         return [zeros_task, zeros_state]

@@ -158,8 +158,9 @@ def run(args):
             options.append(current_option)
     
             action, logp, entropy = option_critic.get_action(local_state, current_option)
-
             next_obs, reward, done, truncated, info = env.step(action)
+            if reward == 20:
+                print("achieved!!")
 
             if args.diversity_learning:
                 entropy_loss = deoc_entropy(option_critic, local_state, option_critic.options_W, args)
@@ -279,14 +280,15 @@ def visualize_options(option_critic):
     for option in range(10):
         no_passenger = [[0 for _ in range(5)] for _ in range(5)]
         with_passenger = [[0 for _ in range(5)] for _ in range(5)]
-        for taxi_state in range(24):
+        for taxi_state in range(25):
             with torch.no_grad():
-                state = torch.zeros(26)
+                state = torch.zeros(50)
                 state[taxi_state] = 1
                 col = taxi_state % 5
                 row = int((taxi_state - col)/5)
                 no_passenger[row][col] = option_critic.get_greedy_action(state, option)
-                state[-1] = 1
+                state = torch.zeros(50)
+                state[taxi_state + 25] = 1
                 with_passenger[row][col] = option_critic.get_greedy_action(state, option)
         print("OPTION:", option)
         print("no passenger:", pretty_print_policy(no_passenger))
