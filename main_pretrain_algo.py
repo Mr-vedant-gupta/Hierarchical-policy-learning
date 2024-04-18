@@ -4,9 +4,9 @@ import torch
 from copy import deepcopy
 import os
 
-from option_critic import OptionCriticFeatures, OptionCriticConv, deoc_entropy
-from option_critic import critic_loss as critic_loss_fn
-from option_critic import actor_loss as actor_loss_fn
+from option_critic_pretrain import OptionCriticFeatures
+from option_critic_pretrain import critic_loss as critic_loss_fn
+from option_critic_pretrain import actor_loss as actor_loss_fn
 
 from experience_replay import ReplayBuffer
 from utils import make_env, to_tensor
@@ -72,7 +72,7 @@ def load_model(model, run_name):
     model_path = os.path.join(model_dir, 'model.pth')
     # Load the model state
     if os.path.isfile(model_path):
-        model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
         print(f"Model loaded successfully from {model_path}")
     else:
         raise FileNotFoundError(f"No model file found at {model_path}")
@@ -93,11 +93,6 @@ def run(args):
         eps_test=args.optimal_eps,
         device=device
     )
-    # Create a prime network for more stable Q values
-    option_critic_prime = deepcopy(option_critic)
-    if args.model:
-        print("Loading model...")
-        load_model(option_critic, args.model)
     optim = torch.optim.RMSprop(option_critic.parameters(), lr=args.learning_rate)
 
     np.random.seed(args.seed)
@@ -110,122 +105,67 @@ def run(args):
     steps = 0 ;
     if args.switch_goal: print(f"Current goal {env.goal}")
     if args.test==1:
+        load
         test(option_critic, args.env)
         return
     batch_size = args.batch_size
     lam = 0
 
     sum_entropy = 0
-
-    for episode in range(10_000):
+    task_dict = {}
+    next_task_index = 0
+    q_vals = np.zeros((12, 50, 6))
+    for episode in range(1_00_00):
+        print("episode: ", episode)
         options = []
         prev_step_termination = False
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
+        obs, info = env.reset()
+        state, task  = obs
 
-        obs, info   = env.reset()
-        full_obs, local_obs = obs
-        full_state, local_state = option_critic.get_state(to_tensor(full_obs)), option_critic.get_state(to_tensor(local_obs))
-        greedy_option  = option_critic.greedy_option(full_state)
-        current_option = 0
-
-        # Goal switching experiment: run for 1k episodes in fourrooms, switch goals and run for another
-        # 2k episodes. In option-critic, if the options have some meaning, only the policy-over-options
-        # should be finedtuned (this is what we would hope).
-        if args.switch_goal and logger.n_eps == 1000:
-            torch.save({'model_params': option_critic.state_dict(),
-                        'goal_state': env.goal},
-                        f'models/option_critic_seed={args.seed}_1k')
-            env.switch_goal()
-            print(f"New goal {env.goal}")
-
-        if args.switch_goal and logger.n_eps > 2000:
-            torch.save({'model_params': option_critic.state_dict(),
-                        'goal_state': env.goal},
-                        f'models/option_critic_seed={args.seed}_2k')
-            break
 
         done = False ; truncated = False ; ep_steps = 0 ; option_termination = True ; curr_op_len = 0
-
-        switch_loss = 0
-        success = False
-        while ((not done) and (not truncated)) and ep_steps < args.max_steps_ep:
-            epsilon = option_critic.epsilon
-
-            if option_termination:
-                option_lengths[current_option].append(curr_op_len)
-                current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else greedy_option
-                curr_op_len = 0
-            options.append(current_option)
-    
-            action, logp, entropy = option_critic.get_action(local_state, current_option)
-
-            next_obs, reward, done, truncated, info = env.step(action)
-
-            if args.diversity_learning:
-                entropy_loss = deoc_entropy(option_critic, local_state, option_critic.options_W, args)
-                sum_entropy += entropy_loss
-                pseudo_reward = (1 - args.diversity_tradeoff) * reward + args.diversity_tradeoff * entropy_loss
-                reward = pseudo_reward
-
-            n_full_obs, n_local_obs = next_obs
-            buffer.push(obs, current_option, reward, next_obs, done, action)
-            rewards += reward
-
-            actor_loss, critic_loss = None, None
-            if len(buffer) > batch_size: # after first few iters this is satisfied every time!
-                actor_loss = actor_loss_fn(obs, current_option, logp, entropy, \
-                    reward, done, next_obs, option_critic, option_critic_prime, args, sum_entropy / steps)
-                loss = actor_loss
-
-                if steps % args.update_frequency == 0:
-                    data_batch = buffer.sample(batch_size)
-                    critic_loss = critic_loss_fn(option_critic, option_critic_prime, data_batch, args)
-                    loss += critic_loss
-                optim.zero_grad()
-                loss.backward()
-                optim.step()
-
-                if steps % args.freeze_interval == 0:
-                    option_critic_prime.load_state_dict(option_critic.state_dict())
-
-            local_state = option_critic.get_state(to_tensor(next_obs[1]))
-            full_state = option_critic.get_state(to_tensor(next_obs[0]))
-            option_termination, greedy_option, termination_prob = option_critic.predict_option_termination(full_state, local_state, current_option)
-            switch_loss += termination_prob
-            # update global steps etc
+        if task in task_dict:
+            current_option = task_dict[task]
+        else:
+            current_option = next_task_index
+            task_dict[task] = next_task_index
+            next_task_index += 1
+        success, truncated = False, False
+        steps = 0
+        while ((not done) and (not truncated)):
             steps += 1
-            ep_steps += 1
-            curr_op_len += 1
-            obs = next_obs
-            # TODO - add model saving
-            logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
-
-        if episode % 500 == 0:
-            save_model_with_args(option_critic, run_name, str(args), episode)
-        # Uncomment this to try increasing option size with dual gradient descent
-
-        if args.dual_gradient_descent:
-            if success:
-                lam += 7e-5
+            import random
+            if random.random() < 0.1:
+                action = env.action_space.sample()  # Explore the action space
             else:
-                lam -= 2e-5
-            if lam < 0:
-                lam = 0
-            loss = lam * switch_loss
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
-            
-        logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
-        print(lam)
+                action = np.argmax(q_vals[current_option, state])  # Exploit learned values
 
-    save_model_with_args(option_critic, run_name, str(args))
-    test(option_critic, args.env)
+            # Apply the action and see what happens
+            next_state, reward, done, truncated,  info = env.step(action)
+            if reward == 20:
+                print("done")
+            next_state = next_state[0]
+
+            current_value = q_vals[current_option, state, action]  # current Q-value for the state/action couple
+            next_max = np.max(q_vals[current_option, next_state])  # next best Q-value
+
+            # Compute the new Q-value with the Bellman equation
+            q_vals[current_option, state, action] = (1 - 0.1) * current_value + 0.1 * (reward + 0.99 * next_max)
+            state = next_state
+        print(steps)
+    print(q_vals)
+    print(np.argmax(q_vals, axis = -1))
+    breakpoint()
+    return
+
+
+
 
 def test(option_critic, env_name):
     # Note: there seems to be some bug in the test script as it does not match the training scripts performance
     # Perhaps the issue is that I'm taking argmax here instead of using temperature and epsilon
-    visualize_options(option_critic)
+    #visualize_options(option_critic)
     option_critic.testing = True
     option_critic.temperature = 0.01 #TODO
     env, is_atari = make_env(env_name, render_mode="human")
@@ -257,6 +197,8 @@ def test(option_critic, env_name):
         print("options: ", options)
         print("actions: ", actions)
 
+from tabulate import tabulate
+
 def pretty_print_policy(policy):
     # Define action labels according to the policy description
     action_labels = {
@@ -268,29 +210,80 @@ def pretty_print_policy(policy):
         5: "D"    # Drop off passenger
     }
 
-    # Iterate through each row in the policy
-    for row in policy:
-        # Map each action in the row to its corresponding label
-        labeled_row = [action_labels[action] for action in row]
-        # Join the labeled actions with spaces for better readability and print
-        print(' '.join(labeled_row))
+    # Map each action in the policy to its corresponding label
+    labeled_policy = [[action_labels[action] for action in row] for row in policy]
+
+    # Create a table with borders for better readability
+    table = tabulate(labeled_policy, tablefmt="fancy_grid")
+
+    # Print the formatted table
+    print(table)
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from colorama import init, Fore, Back, Style
+init(autoreset=True)
+
+def fancy_color_coded_terminal_grid(numbers):
+    # Initialize colorama
+    init(autoreset=True)
+
+    # Background colors for intensity
+    colors = [
+        Back.BLACK + Fore.WHITE,   # Very light for value 0
+        Back.BLUE + Fore.WHITE,    # Light blue
+        Back.CYAN + Fore.BLACK,    # Cyan
+        Back.GREEN + Fore.BLACK,   # Green
+        Back.YELLOW + Fore.BLACK,  # Yellow
+        Back.LIGHTYELLOW_EX + Fore.BLACK, # Light yellow
+        Back.LIGHTRED_EX + Fore.BLACK,    # Light red
+        Back.RED + Fore.WHITE,    # Red
+        Back.MAGENTA + Fore.WHITE,  # Magenta
+        Back.LIGHTMAGENTA_EX + Fore.BLACK,  # Light magenta
+        Back.WHITE + Fore.BLACK   # White for value 10
+    ]
+
+    # Print the grid with colors
+    for row in numbers:
+        row_str = ""
+        for num in row:
+            color = colors[min(int(num*10), 10)]  # Get the appropriate color
+            row_str += color + f" {num:2} " + Style.RESET_ALL
+        print(row_str)
+
+
+
+#
 
 def visualize_options(option_critic):
     for option in range(10):
         no_passenger = [[0 for _ in range(5)] for _ in range(5)]
         with_passenger = [[0 for _ in range(5)] for _ in range(5)]
-        for taxi_state in range(24):
+        termination_probs_no_pass = [[0 for _ in range(5)] for _ in range(5)]
+        termination_probs_with_pass = [[0 for _ in range(5)] for _ in range(5)]
+        for taxi_state in range(25):
             with torch.no_grad():
                 state = torch.zeros(26)
                 state[taxi_state] = 1
                 col = taxi_state % 5
                 row = int((taxi_state - col)/5)
                 no_passenger[row][col] = option_critic.get_greedy_action(state, option)
+                termination_probs_no_pass[row][col] += option_critic.get_terminations(state)[option].item()
                 state[-1] = 1
                 with_passenger[row][col] = option_critic.get_greedy_action(state, option)
+                termination_probs_with_pass[row][col] += option_critic.get_terminations(state)[option].item()
         print("OPTION:", option)
-        print("no passenger:", pretty_print_policy(no_passenger))
-        print("with passenger:", pretty_print_policy(with_passenger))
+        print("no passenger:")
+        pretty_print_policy(no_passenger)
+        print("with passenger:")
+        pretty_print_policy(with_passenger)
+        print("no passenger:")
+        print(termination_probs_no_pass)
+        fancy_color_coded_terminal_grid(termination_probs_no_pass)
+        print("with passenger:")
+        fancy_color_coded_terminal_grid(termination_probs_with_pass)
+
 #TODO: more intelligent heuristic
 
 

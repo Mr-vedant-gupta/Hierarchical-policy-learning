@@ -39,7 +39,7 @@ class MultiTaskOneHotWrapper(gym.ObservationWrapper):
     def __init__(self, env: gym.Env):
         super().__init__(env)
         self.n_obs = env.observation_space.n
-        self.n_taxi_pos = 25 #TODO
+        self.n_taxi_pos = 50 #TODO
         self.n_passenger_loc = 5
         self.n_destinations = 4
         self.observation_space = gym.spaces.Box(shape=(self.n_obs,), low=0, high=1, dtype=np.uint8)
@@ -52,13 +52,9 @@ class MultiTaskOneHotWrapper(gym.ObservationWrapper):
         passenger_location = rem%5
         rem = (rem - passenger_location)/5
         taxi_pos = int(rem)
-        zeros_state = np.zeros(self.n_taxi_pos + 1)
-        zeros_state[taxi_pos] = 1
         if passenger_location == 4:
-            zeros_state[-1] = 1
-        zeros_task = np.zeros(self.n_obs)
-        zeros_task[observation] = 1
-        return [zeros_task, zeros_state]
+            taxi_pos += 25
+        return [taxi_pos, (destination, passenger_location)]
     
 
 def make_env(env_name, render_mode):
