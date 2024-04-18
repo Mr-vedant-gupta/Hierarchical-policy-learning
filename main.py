@@ -72,7 +72,7 @@ def load_model(model, run_name):
     model_path = os.path.join(model_dir, 'model.pth')
     # Load the model state
     if os.path.isfile(model_path):
-        model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
         print(f"Model loaded successfully from {model_path}")
     else:
         raise FileNotFoundError(f"No model file found at {model_path}")
@@ -257,6 +257,8 @@ def test(option_critic, env_name):
         print("options: ", options)
         print("actions: ", actions)
 
+from tabulate import tabulate
+
 def pretty_print_policy(policy):
     # Define action labels according to the policy description
     action_labels = {
@@ -268,29 +270,80 @@ def pretty_print_policy(policy):
         5: "D"    # Drop off passenger
     }
 
-    # Iterate through each row in the policy
-    for row in policy:
-        # Map each action in the row to its corresponding label
-        labeled_row = [action_labels[action] for action in row]
-        # Join the labeled actions with spaces for better readability and print
-        print(' '.join(labeled_row))
+    # Map each action in the policy to its corresponding label
+    labeled_policy = [[action_labels[action] for action in row] for row in policy]
+
+    # Create a table with borders for better readability
+    table = tabulate(labeled_policy, tablefmt="fancy_grid")
+
+    # Print the formatted table
+    print(table)
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from colorama import init, Fore, Back, Style
+init(autoreset=True)
+
+def fancy_color_coded_terminal_grid(numbers):
+    # Initialize colorama
+    init(autoreset=True)
+
+    # Background colors for intensity
+    colors = [
+        Back.BLACK + Fore.WHITE,   # Very light for value 0
+        Back.BLUE + Fore.WHITE,    # Light blue
+        Back.CYAN + Fore.BLACK,    # Cyan
+        Back.GREEN + Fore.BLACK,   # Green
+        Back.YELLOW + Fore.BLACK,  # Yellow
+        Back.LIGHTYELLOW_EX + Fore.BLACK, # Light yellow
+        Back.LIGHTRED_EX + Fore.BLACK,    # Light red
+        Back.RED + Fore.WHITE,    # Red
+        Back.MAGENTA + Fore.WHITE,  # Magenta
+        Back.LIGHTMAGENTA_EX + Fore.BLACK,  # Light magenta
+        Back.WHITE + Fore.BLACK   # White for value 10
+    ]
+
+    # Print the grid with colors
+    for row in numbers:
+        row_str = ""
+        for num in row:
+            num = round(num, 2)
+            color = colors[min(int(num*10), 10)]  # Get the appropriate color
+            row_str += color + f" {num:2} " + Style.RESET_ALL
+        print(row_str)
+
+
+#
 
 def visualize_options(option_critic):
     for option in range(10):
         no_passenger = [[0 for _ in range(5)] for _ in range(5)]
         with_passenger = [[0 for _ in range(5)] for _ in range(5)]
-        for taxi_state in range(24):
+        termination_probs_no_pass = [[0 for _ in range(5)] for _ in range(5)]
+        termination_probs_with_pass = [[0 for _ in range(5)] for _ in range(5)]
+        for taxi_state in range(25):
             with torch.no_grad():
                 state = torch.zeros(26)
                 state[taxi_state] = 1
                 col = taxi_state % 5
                 row = int((taxi_state - col)/5)
                 no_passenger[row][col] = option_critic.get_greedy_action(state, option)
+                termination_probs_no_pass[row][col] += option_critic.get_terminations(state)[option].item()
                 state[-1] = 1
                 with_passenger[row][col] = option_critic.get_greedy_action(state, option)
+                termination_probs_with_pass[row][col] += option_critic.get_terminations(state)[option].item()
         print("OPTION:", option)
-        print("no passenger:", pretty_print_policy(no_passenger))
-        print("with passenger:", pretty_print_policy(with_passenger))
+        print("no passenger:")
+        pretty_print_policy(no_passenger)
+        print("with passenger:")
+        pretty_print_policy(with_passenger)
+        print("no passenger:")
+        print(termination_probs_no_pass)
+        fancy_color_coded_terminal_grid(termination_probs_no_pass)
+        print("with passenger:")
+        fancy_color_coded_terminal_grid(termination_probs_with_pass)
+
 #TODO: more intelligent heuristic
 
 
