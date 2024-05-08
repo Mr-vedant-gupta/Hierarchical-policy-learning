@@ -172,6 +172,8 @@ class OptionCriticFeatures(nn.Module):
 
         action = action_dist.sample()
         logp = action_dist.log_prob(action)
+        #print("not in log space")
+        logp = torch.exp(logp)
         entropy = action_dist.entropy()
 
         return action.item(), logp, entropy

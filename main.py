@@ -110,21 +110,13 @@ def run(args):
 
     for episode in range(10_000):
         options = []
-        print("temp changes")
-        option_critic.temperature = 1e-5
-        if episode == 500:
-            env, is_atari = make_env(args.env, render_mode="human")
-        option_critic.temperature *=0.999
-        print("temperature", option_critic.temperature)
         rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
 
         obs, info   = env.reset()
         full_obs, local_obs = obs
         full_state, local_state = option_critic.get_state(to_tensor(full_obs)), option_critic.get_state(to_tensor(local_obs))
         greedy_option  = option_critic.greedy_option(full_state)
-        first thing to do is a full code check
-    TODO: this should be changed
-        current_option = 0
+        current_option = greedy_option
 
         # Goal switching experiment: run for 1k episodes in fourrooms, switch goals and run for another
         # 2k episodes. In option-critic, if the options have some meaning, only the policy-over-options
@@ -163,7 +155,7 @@ def run(args):
             #TODO: is there a dual gradient descent like method where you can tune this automatically?
             #TODO: Will help if you prevent conseq switches or add some logic there
             if action == 6:
-                next_obs, reward, done, truncated = obs, -3, False, False
+                next_obs, reward, done, truncated = obs, -1, False, False
             else:
                 next_obs, reward, done, truncated, info = env.step(action)
             n_full_obs, n_local_obs = next_obs
@@ -201,7 +193,7 @@ def run(args):
             # TODO - add model saving
             logger.log_data(steps, actor_loss, critic_loss, entropy.item(), epsilon)
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
-        print(options)
+        #print(options)
 
     save_model_with_args(option_critic, run_name, str(args))
     test(option_critic, args.env)
