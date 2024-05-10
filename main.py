@@ -120,7 +120,7 @@ def run(args):
     for episode in range(10_000):
         options = []
         prev_step_termination = False
-        rewards = 0 ; option_lengths = {opt:[] for opt in range(args.num_options)}
+        rewards = 0 ; option_lengths = []
 
         obs, info   = env.reset()
         full_obs, local_obs = obs
@@ -148,11 +148,13 @@ def run(args):
 
         switch_loss = 0
         success = False
+
         while ((not done) and (not truncated)) and ep_steps < args.max_steps_ep:
             epsilon = option_critic.epsilon
 
             if option_termination:
-                option_lengths[current_option].append(curr_op_len)
+                if curr_op_len != 0:
+                    option_lengths.append(curr_op_len)
                 current_option = np.random.choice(args.num_options) if np.random.rand() < epsilon else greedy_option
                 curr_op_len = 0
             options.append(current_option)
@@ -217,10 +219,9 @@ def run(args):
             optim.step()
             
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
-        print(lam)
 
-    save_model_with_args(option_critic, run_name, str(args))
-    test(option_critic, args.env)
+    save_model_with_args(option_critic, run_name, str(args), episode)
+    #test(option_critic, args.env)
 
 def test(option_critic, env_name):
     # Note: there seems to be some bug in the test script as it does not match the training scripts performance

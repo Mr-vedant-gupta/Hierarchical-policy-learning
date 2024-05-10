@@ -34,10 +34,10 @@ class Logger():
         self.writer.add_scalar(tag='episode_lengths', scalar_value=ep_steps, global_step=self.n_eps)
 
         # Keep track of options statistics
-        for option, lens in option_lengths.items():
-            # Need better statistics for this one, point average is terrible in this case
-            self.writer.add_scalar(tag=f"option_{option}_avg_length", scalar_value=np.mean(lens) if len(lens)>0 else 0, global_step=self.n_eps)
-            self.writer.add_scalar(tag=f"option_{option}_active", scalar_value=sum(lens)/ep_steps, global_step=self.n_eps)
+
+        # Need better statistics for this one, point average is terrible in this case
+        self.writer.add_scalar(tag="option__avg_length", scalar_value=sum(option_lengths)/len(option_lengths), global_step=self.n_eps)
+            #self.writer.add_scalar(tag=f"option_{option}_active", scalar_value=sum(lens)/ep_steps, global_step=self.n_eps)
     def log_data(self, step, actor_loss, critic_loss, entropy, epsilon):
         if actor_loss:
             self.writer.add_scalar(tag="actor_loss", scalar_value=actor_loss.item(), global_step=step)
