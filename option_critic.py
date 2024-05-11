@@ -165,7 +165,7 @@ class OptionCriticFeatures(nn.Module):
         return bool(option_termination.item()), next_option.item(), termination
     
     def get_terminations(self, state):
-        return self.terminations(state).sigmoid() 
+        return self.terminations(state).sigmoid()
 
     def get_option_pmf(self, state, option):
         logits = state.data @ self.options_W[option]
@@ -253,7 +253,7 @@ def critic_loss(model, model_prime, data_batch, args):
 
     # Now we can calculate the update target gt
     gt = rewards + masks * args.gamma * \
-        ((1 - next_options_term_prob) * next_Q_prime[batch_idx, options] + next_options_term_prob  * next_Q_prime.max(dim=-1)[0]) #TODO: will it help to add terminatrion reg here too?
+        ((1 - next_options_term_prob) * next_Q_prime[batch_idx, options] + next_options_term_prob  * (-args.termination_reg + next_Q_prime.max(dim=-1)[0])) #TODO: will it help to add terminatrion reg here too?
 
     # to update Q we want to use the actual network, not the prime
     td_err = (Q[batch_idx, options] - gt.detach()).pow(2).mul(0.5).mean()
@@ -295,7 +295,17 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
         termination_loss = option_term_prob * (Q[option].detach() - model.Q_opt(full_state).detach().squeeze().max(dim=-1)[0].detach()) * (1 - done)
     else:
         option_term_prob = model.get_terminations(local_state)[:, option]
-        termination_loss = option_term_prob * (Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
+        if args.new_termination:
+            if option == Q.argmax(dim=-1).item():
+                sorted_tensor, _ = Q.sort(dim=-1, descending=True)
+                second_largest = sorted_tensor[..., 1].detach()
+                termination_loss = option_term_prob * (
+                    Q[option].detach() - second_largest + args.termination_reg) * (1 - done)
+            else:
+                termination_loss = option_term_prob * (
+                    Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
+        else:
+            termination_loss = option_term_prob * (Q[option].detach() - Q.max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
 
     # print(termination_loss)
 

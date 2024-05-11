@@ -27,7 +27,7 @@ parser.add_argument('--max-history', type=int, default=200, help=('Maximum numbe
 parser.add_argument('--batch-size', type=int, default=32, help='Batch size.')
 parser.add_argument('--freeze-interval', type=int, default=200, help=('Interval between target freezes.'))
 parser.add_argument('--update-frequency', type=int, default=4, help=('Number of actions before each SGD update.'))
-parser.add_argument('--termination-reg', type=float, default=0.01, help=('Regularization to decrease termination prob.'))
+parser.add_argument('--termination-reg', type=float, default=0, help=('Regularization to decrease termination prob.'))
 parser.add_argument('--entropy-reg', type=float, default=0.01, help=('Regularization to increase policy entropy.'))
 parser.add_argument('--num-options', type=int, default=2, help=('Number of options to create.'))
 parser.add_argument('--temp', type=float, default=1, help='Action distribution softmax tempurature param.')
@@ -46,6 +46,7 @@ parser.add_argument('--diversity_tradeoff', type=float, default=0.0001, help='Tr
 parser.add_argument('--deoc_entropy_samples', type=int, default=6, help='Number of samples to estimate entropy')
 parser.add_argument('--separate_value_function', action='store_true', help='Whether to use separate termination network')
 parser.add_argument('--dual_gradient_descent', action='store_true', help='Whether to use dual gradient descent')
+parser.add_argument('--new_termination', action='store_true', help='Whether to use revised termination gradient theorum')
 
 def save_model_with_args(model, run_name, arg_string, ep_num):
     # Create the directory path
@@ -173,6 +174,9 @@ def run(args):
             buffer.push(obs, current_option, reward, next_obs, done, action)
             rewards += reward
 
+            if reward == 20:
+                print("achieved")
+
             actor_loss, critic_loss = None, None
             if len(buffer) > batch_size: # after first few iters this is satisfied every time!
                 actor_loss = actor_loss_fn(obs, current_option, logp, entropy, \
@@ -193,6 +197,12 @@ def run(args):
             local_state = option_critic.get_state(to_tensor(next_obs[1]))
             full_state = option_critic.get_state(to_tensor(next_obs[0]))
             option_termination, greedy_option, termination_prob = option_critic.predict_option_termination(full_state, local_state, current_option)
+            if option_termination and args.new_termination:
+                if current_option == greedy_option: #change greedy option to be the second best option
+                    Q = option_critic.get_Q(full_state)
+                    top_two_values, top_two_indices = Q.topk(2, dim=-1)
+                    greedy_option = top_two_indices[..., 1].item()
+
             switch_loss += termination_prob
             # update global steps etc
             steps += 1
@@ -205,7 +215,6 @@ def run(args):
         if episode % 500 == 0:
             save_model_with_args(option_critic, run_name, str(args), episode)
         # Uncomment this to try increasing option size with dual gradient descent
-
         if args.dual_gradient_descent:
             if success:
                 lam += 7e-5
@@ -217,6 +226,9 @@ def run(args):
             optim.zero_grad()
             loss.backward()
             optim.step()
+
+        if curr_op_len != 0:
+            option_lengths.append(curr_op_len)
             
         logger.log_episode(steps, rewards, option_lengths, ep_steps, epsilon)
 
