@@ -141,7 +141,7 @@ class OptionCriticFeatures(nn.Module):
         self.Q            = nn.Linear(500, num_options, bias = False)                 # Policy-Over-Options
         self.terminations = nn.Linear(26, num_options, bias = False)                 # Option-Termination
         self.options_W = nn.Parameter(torch.zeros(num_options, 26, num_actions))
-        self.Q_opt = nn.Linear(500, num_actions, bias = False)
+        self.Q_pess = nn.Linear(500, num_options, bias = False)
         #self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
 
         self.to(device)
@@ -156,6 +156,9 @@ class OptionCriticFeatures(nn.Module):
 
     def get_Q(self, state):
         return self.Q(state)
+
+    def get_Q_pess(self, state):
+        return self.Q_pess(state)
     
     def predict_option_termination(self, full_state, local_state, current_option):
         termination = self.terminations(local_state)[:, current_option].sigmoid()
@@ -240,11 +243,13 @@ def critic_loss(model, model_prime, data_batch, args):
     full_states = model.get_state(to_tensor(full_obs)).squeeze(0)
     local_states = model.get_state(to_tensor(local_obs)).squeeze(0)
     Q      = model.get_Q(full_states)
+    Q_pess = model.get_Q_pess(full_states)
     
     # the update target contains Q_next, but for stable learning we use prime network for this
     nfull_states_prime = model_prime.get_state(to_tensor(nfull_obs)).squeeze(0)
     nlocal_states_prime = model_prime.get_state(to_tensor(nlocal_obs)).squeeze(0)
     next_Q_prime      = model_prime.get_Q(nfull_states_prime) # detach?
+    next_Q_prime_pess = model_prime.get_Q_pess(nfull_states_prime)  # detach?
     # Additionally, we need the beta probabilities of the next state
     nfull_states            = model.get_state(to_tensor(nfull_obs)).squeeze(0)
     nlocal_states = model.get_state(to_tensor(nlocal_obs)).squeeze(0)
@@ -255,11 +260,15 @@ def critic_loss(model, model_prime, data_batch, args):
     gt = rewards + masks * args.gamma * \
         ((1 - next_options_term_prob) * next_Q_prime[batch_idx, options] + next_options_term_prob  * (-args.termination_reg + next_Q_prime.max(dim=-1)[0])) #TODO: will it help to add terminatrion reg here too?
 
+    gt_pess = rewards + masks * args.gamma * \
+         ((1 - next_options_term_prob) * next_Q_prime_pess[batch_idx, options] + next_options_term_prob * (
+                     -args.termination_reg + next_Q_prime_pess.max(dim=-1)[0]))
+
     # to update Q we want to use the actual network, not the prime
     td_err = (Q[batch_idx, options] - gt.detach()).pow(2).mul(0.5).mean()
+    td_err_pess = (Q_pess[batch_idx, options] - gt_pess.detach()).pow(2).mul(0.5).mean()
     #breakpoint()
-    q_error = (model.Q_opt(full_states)[batch_idx, 0] - (rewards + masks*args.gamma*model_prime.Q_opt(nfull_states_prime).max(dim=-1)[0]).detach()).pow(2).mul(0.5).mean()
-    return td_err + q_error
+    return td_err + td_err_pess
 
 def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args, avg_entropy=0.):
     full_obs, local_obs = obs
@@ -291,8 +300,10 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
         deoc_ent = deoc_entropy(model, local_state, model.options_W, args) - avg_entropy
         termination_loss = deoc_ent
     elif args.separate_value_function:
+        if args.new_termination:
+            raise Exception("not implemented")
         option_term_prob = model.get_terminations(local_state)[:, option]
-        termination_loss = option_term_prob * (Q[option].detach() - model.Q_opt(full_state).detach().squeeze().max(dim=-1)[0].detach()) * (1 - done)
+        termination_loss = option_term_prob * (Q[option].detach() - model.Q_pess(full_state).detach().squeeze().max(dim=-1)[0].detach()) * (1 - done)
     else:
         option_term_prob = model.get_terminations(local_state)[:, option]
         if args.new_termination:
