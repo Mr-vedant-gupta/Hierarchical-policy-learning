@@ -121,6 +121,7 @@ def run(args):
     termination_reg_final = args.termination_reg
 
     for episode in range(10_000):
+        print(args.termination_reg)
         if episode < 2000:
             args.termination_reg = termination_reg_final * episode / 2000
         else:

@@ -262,7 +262,6 @@ def critic_loss(model, model_prime, data_batch, args):
     return td_err + q_error
 
 def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_prime, args, avg_entropy=0.):
-    print(args.termination_reg)
     full_obs, local_obs = obs
     nfull_obs, nlocal_obs = next_obs
     #TODO make sure the line below is now reachable
