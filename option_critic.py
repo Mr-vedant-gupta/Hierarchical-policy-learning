@@ -114,7 +114,7 @@ class OptionCriticFeatures(nn.Module):
                 eps_decay=int(1e6),
                 eps_test=0.05,
                 device='cpu',
-                testing=False):
+                testing=False, pess_init_val = None):
 
         super(OptionCriticFeatures, self).__init__()
 
@@ -142,6 +142,7 @@ class OptionCriticFeatures(nn.Module):
         self.terminations = nn.Linear(26, num_options, bias = False)                 # Option-Termination
         self.options_W = nn.Parameter(torch.zeros(num_options, 26, num_actions))
         self.Q_pess = nn.Linear(500, num_options, bias = False)
+        nn.init.constant_(self.Q_pess.weight, pess_init_val)
         #self.options_b = nn.Parameter(torch.zeros(num_options, num_actions))
 
         self.to(device)

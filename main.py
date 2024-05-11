@@ -47,6 +47,7 @@ parser.add_argument('--deoc_entropy_samples', type=int, default=6, help='Number 
 parser.add_argument('--separate_value_function', action='store_true', help='Whether to use separate termination network')
 parser.add_argument('--dual_gradient_descent', action='store_true', help='Whether to use dual gradient descent')
 parser.add_argument('--new_termination', action='store_true', help='Whether to use revised termination gradient theorum')
+parser.add_argument('--pess_init_val', type= int, default = -100, help='Init value for pessimistic network')
 
 def save_model_with_args(model, run_name, arg_string, ep_num):
     # Create the directory path
@@ -93,6 +94,7 @@ def run(args):
         eps_decay=args.epsilon_decay,
         eps_test=args.optimal_eps,
         device=device
+        pess_init_val = args.pess_init_val
     )
     # Create a prime network for more stable Q values
     option_critic_prime = deepcopy(option_critic)
