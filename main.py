@@ -118,7 +118,14 @@ def run(args):
 
     sum_entropy = 0
 
+    termination_reg_final = args.termination_reg
+
     for episode in range(10_000):
+        if episode < 2000:
+            args.termination_reg = termination_reg_final * episode / 2000
+        else:
+            args.termination_reg = termination_reg_final
+
         options = []
         prev_step_termination = False
         rewards = 0 ; option_lengths = []
