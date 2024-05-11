@@ -93,7 +93,7 @@ def run(args):
         eps_min=args.epsilon_min,
         eps_decay=args.epsilon_decay,
         eps_test=args.optimal_eps,
-        device=device
+        device=device,
         pess_init_val = args.pess_init_val
     )
     # Create a prime network for more stable Q values
