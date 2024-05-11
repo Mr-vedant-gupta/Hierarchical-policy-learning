@@ -286,6 +286,7 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
     next_option_term_prob = model.get_terminations(nlocal_state)[:, option].detach()
 
     Q = model.get_Q(full_state).detach().squeeze()
+    Q_pess = model.get_Q_pess(full_state).detach().squeeze()
     next_Q_prime = model_prime.get_Q(nfull_state_prime).detach().squeeze()
 
     # Target update gt
@@ -301,10 +302,18 @@ def actor_loss(obs, option, logp, entropy, reward, done, next_obs, model, model_
         deoc_ent = deoc_entropy(model, local_state, model.options_W, args) - avg_entropy
         termination_loss = deoc_ent
     elif args.separate_value_function:
-        if args.new_termination:
-            raise Exception("not implemented")
         option_term_prob = model.get_terminations(local_state)[:, option]
-        termination_loss = option_term_prob * (Q[option].detach() - model.Q_pess(full_state).detach().squeeze().max(dim=-1)[0].detach()) * (1 - done)
+        if args.new_termination:
+            if option == Q.argmax(dim=-1).item():
+                sorted_tensor, _ = Q_pess.sort(dim=-1, descending=True)
+                second_largest = sorted_tensor[..., 1].detach()
+                termination_loss = option_term_prob * (
+                        Q[option].detach() - second_largest + args.termination_reg) * (1 - done)
+            else:
+                termination_loss = option_term_prob * (
+                            Q[option].detach() - model.Q_pess(full_state).detach().squeeze().max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
+        else:
+            termination_loss = option_term_prob * (Q[option].detach() - model.Q_pess(full_state).detach().squeeze().max(dim=-1)[0].detach() + args.termination_reg) * (1 - done)
     else:
         option_term_prob = model.get_terminations(local_state)[:, option]
         if args.new_termination:
