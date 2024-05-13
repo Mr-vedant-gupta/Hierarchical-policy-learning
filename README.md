@@ -1,3 +1,3 @@
 # Hierarchical-policy-learning
 
-Option Critic Implementation Adapted from https://github.com/yash-browncs/option-critic-pytorch/tree/master
+Option Critic Implementation Adapted from https://github.com/lweitkamp/option-critic-pytorch
